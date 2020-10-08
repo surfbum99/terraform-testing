@@ -1,0 +1,95 @@
+# Configure the AWS Provider
+provider "aws" {
+  version = "~> 3.0"
+  region  = "eu-west-2"
+}
+
+data "aws_ami" "AM-Image" {
+  most_recent      = true
+  owners = ["356439070975"]
+
+
+  filter {
+    name   = "name"
+    values = ["AM-Image"]
+  }
+}
+
+# Declare Input variables
+
+variable "server_port_http" {
+  description = "The is the HTTP Server port of the WebServers"
+  type = number
+  default = 80
+}
+
+variable "server_port_ssh" {
+  description = "The is the SSH Server port connecting to instances"
+  type = number
+  default = 22
+}
+
+# Output Variables
+
+output "public_ip" {
+  value = aws_instance.web[*].public_ip
+  description = "The Public IP address of the web server"
+}
+
+# Declaring AWS  resources
+
+resource "aws_security_group" "openshot_allow_http_ssh" {
+  name        = "openshot_allow_http_ssh"
+  description = "Allow HTTP and SSH inbound traffic"
+
+  ingress {
+    description = "HTTP from VPC"
+    from_port   = var.server_port_http
+    to_port     = var.server_port_http
+    protocol    = "tcp" 
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "TLS from VPC"
+    from_port   = var.server_port_ssh
+    to_port     = var.server_port_ssh
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "allow_tls"
+  }
+}
+
+resource "aws_instance" "web" {
+  ami           = data.aws_ami.AM-Image.id
+  instance_type = "t2.micro"
+  count = "3" 
+
+  user_data = <<-EOF
+              #!/bin/bash
+              yum update -y
+              yum install httpd -y
+              systemctl start httpd
+              systemctl enable httpd
+              cd /var/www/html
+              echo "Hello World from Terraform" > index.html
+              EOF
+
+  security_groups = ["${aws_security_group.openshot_allow_http_ssh.name}"]
+  key_name = "amkey"
+
+  tags = {
+    Name = "Terraform-Instance.${count.index}"
+  }
+
+}
